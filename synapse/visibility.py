@@ -188,7 +188,7 @@ async def filter_events_for_client(
     filtered_events = map(allowed, events)
 
     # Turn it into a list and remove None entries before returning.
-    return [ev for ev in filtered_events if ev]
+    return [ev for ev in filtered_events if ev and not ev.unsigned.get("redacted_because")]
 
 
 async def filter_event_for_clients_with_state(

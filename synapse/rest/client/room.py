@@ -70,6 +70,12 @@ from synapse.types.state import StateFilter
 from synapse.util.cancellation import cancellable
 from synapse.util.events import generate_fake_event_id
 from synapse.util.stringutils import parse_and_validate_server_name
+from synapse.http.servlet import RestServlet, parse_json_object_from_request
+from synapse.api.errors import SynapseError
+from synapse.logging.opentracing import set_tag
+from synapse.types import Requester
+from typing import Tuple, Dict, Any, List, Optional
+from http import HTTPStatus
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -1213,7 +1219,6 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
                         "You can only redact your own events while account is suspended.",
                         Codes.USER_ACCOUNT_SUSPENDED,
                     )
-
         # Ensure the redacts property in the content matches the one provided in
         # the URL.
         room_version = await self._store.get_room_version(room_id)
@@ -1358,13 +1363,73 @@ class RoomTypingRestServlet(RestServlet):
         return 200, {}
 
 
+from synapse.rest.client._base import client_patterns
+from synapse.http.servlet import RestServlet
+from synapse.api.errors import SynapseError
+from typing import Tuple, Dict, Any, List, Optional
+from http import HTTPStatus
+
+
+class BulkRoomRedactRestServlet(RestServlet):
+    """REST-сервлет для массового удаления (редактирования) событий в комнате."""
+    PATH = "/rooms/(?P<room_id>[^/]*)/bulk_redact"
+
+    def __init__(self, hs: "HomeServer"):
+        super().__init__()
+        self.hs = hs
+        self.auth = hs.get_auth()
+        self.event_creation_handler = hs.get_event_creation_handler()
+
+    def register(self, http_server: "HttpServer") -> None:
+        # Используем client_patterns, чтобы URL корректно сопоставлялся с префиксом /_matrix/client/v3/...
+        http_server.register_paths(
+            method="POST",
+            path_patterns=client_patterns(self.PATH, v1=True),
+            callback=self.on_POST,
+            servlet_classname=self.__class__.__name__,
+        )
+
+    async def on_POST(self, request: "SynapseRequest", room_id: str) -> Tuple[int, Dict[str, Any]]:
+        requester = await self.auth.get_user_by_req(request)
+        content = parse_json_object_from_request(request)
+
+        event_ids: List[str] = content.get("event_ids")
+        if not event_ids or not isinstance(event_ids, list):
+            raise SynapseError(
+                HTTPStatus.BAD_REQUEST,
+                "Необходимо передать список идентификаторов событий в поле 'event_ids'"
+            )
+        reason: Optional[str] = content.get("reason")
+
+        results = {}
+        for event_id in event_ids:
+            try:
+                # Формируем словарь события редактирования (redaction)
+                event_dict = {
+                    "type": EventTypes.Redaction,
+                    "content": {"reason": reason} if reason else {},
+                    "room_id": room_id,
+                    "sender": requester.user.to_string(),
+                    "redacts": event_id,
+                }
+                # Создаем и отправляем событие редактирования
+                redacted_event, _ = await self.event_creation_handler.create_and_send_nonmember_event(
+                    requester, event_dict, txn_id=None
+                )
+                results[event_id] = "success"
+            except Exception as e:
+                results[event_id] = f"error: {str(e)}"
+        return 200, {"results": results}
+
+
 class RoomAliasListServlet(RestServlet):
     PATTERNS = [
-        re.compile(
-            r"^/_matrix/client/unstable/org\.matrix\.msc2432"
-            r"/rooms/(?P<room_id>[^/]*)/aliases"
-        ),
-    ] + list(client_patterns("/rooms/(?P<room_id>[^/]*)/aliases$", unstable=False))
+                   re.compile(
+                       r"^/_matrix/client/unstable/org\.matrix\.msc2432"
+                       r"/rooms/(?P<room_id>[^/]*)/aliases"
+                   ),
+               ] + list(
+        client_patterns("/rooms/(?P<room_id>[^/]*)/aliases$", unstable=False))
     CATEGORY = "Client API requests"
 
     def __init__(self, hs: "HomeServer"):
@@ -1583,6 +1648,7 @@ class RoomSummaryRestServlet(ResolveRoomIdMixin, RestServlet):
 
 def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     RoomStateEventRestServlet(hs).register(http_server)
+    BulkRoomRedactRestServlet(hs).register(http_server)
     RoomMemberListRestServlet(hs).register(http_server)
     JoinedRoomMemberListRestServlet(hs).register(http_server)
     RoomMessageListRestServlet(hs).register(http_server)

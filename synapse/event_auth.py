@@ -844,20 +844,7 @@ def check_redaction(
     event: "EventBase",
     auth_events: StateMap["EventBase"],
 ) -> bool:
-    """Check whether the event sender is allowed to redact the target event.
-
-    Returns:
-        True if the sender is allowed to redact the target event if the
-        target event was created by them.
-        False if the sender is allowed to redact the target event with no
-        further checks.
-
-    Raises:
-        AuthError if the event sender is definitely not allowed to redact
-        the target event.
-    """
     user_level = get_user_power_level(event.user_id, auth_events)
-
     redact_level = get_named_level(auth_events, "redact", 50)
 
     if user_level >= redact_level:

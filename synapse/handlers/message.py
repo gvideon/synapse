@@ -1913,10 +1913,12 @@ class EventCreationHandler:
                             "Could not find event %s" % (event.redacts,)
                         )
 
+                    # if event.user_id != original_event.user_id:
+                    #     raise AuthError(
+                    #         403, "You don't have permission to redact events"
+                    #     ) # TODO fix
                     if event.user_id != original_event.user_id:
-                        raise AuthError(
-                            403, "You don't have permission to redact events"
-                        )
+                        continue
 
                     # all the checks are done.
                     event.internal_metadata.recheck_redaction = False

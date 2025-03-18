@@ -75,6 +75,7 @@ from synapse.util.module_loader import load_module
 
 logger = logging.getLogger("synapse.app.homeserver")
 
+print("Запуск Synapse из локальных исходников!")
 
 def gz_wrap(r: Resource) -> Resource:
     return EncodingResourceWrapper(r, [GzipEncoderFactory()])

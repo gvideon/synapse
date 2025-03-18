@@ -632,6 +632,9 @@ class PaginationHandler:
                 events,
                 is_peeking=(member_event_id is None),
             )
+            # Добавляем фильтрацию для исключения полностью отредактированных (удалённых) событий
+            logger.info("Удаление работает!!!!")
+            events = [e for e in events if not e.get("unsigned", {}).get("redacted_because")]
 
         # if after the filter applied there are no more events
         # return immediately - but there might be more in next_token batch
